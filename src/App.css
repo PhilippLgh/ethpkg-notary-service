@@ -1,0 +1,23 @@
+.App {
+  text-align: center;
+}
+
+.donation-select .radio {
+  margin-left: 1rem;
+}
+
+.donation-select .radio input{
+  margin-right: 0.25rem;
+}
+
+.tag.is-outlined {
+  outline: 1px solid black;
+}
+
+.donation-select .tag {
+  cursor: pointer;
+}
+
+.nav-link {
+  padding-left: 10px;
+}

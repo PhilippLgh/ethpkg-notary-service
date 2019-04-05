@@ -1,1 +1,1 @@
-# ethpkg-notary-service
+# The ethpkg notary service
