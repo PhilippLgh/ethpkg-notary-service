@@ -12,6 +12,9 @@ const ROPSTEN_NETWORK_ID = '3'
 
 const CURRENT_NETWORK = ROPSTEN_NETWORK_ID
 
+const ethereum = window.web3 ? new Web3(window.web3.currentProvider) : (window.ethereum ? new Web3(window.ethereum) : null)
+window.__ethereum = ethereum
+
 class App extends Component {
   state={
     address: undefined,
@@ -75,7 +78,6 @@ class App extends Component {
       }
       
     } catch (error) {
-      alert('error'+error.message)
       this.setState({
         error: error.message,
         isLoading: false
@@ -89,21 +91,95 @@ class App extends Component {
       donationError: ''
     })
 
-    let ethereum = undefined
-
-    // legacy API
-    if (typeof window.web3 !== 'undefined') {
-      ethereum = new Web3(window.web3.currentProvider)
-    }
-
-    // new provider API
-    if (!ethereum && typeof window.ethereum !== 'undefined') {
-      ethereum = new Web3(window.ethereum)
-    } 
 
     if (!ethereum) {
       alert('Please use a Dapp browser like Opera, Status or install the Metamask extension')
       return
+    }
+
+    // somehow await ethereum.sendAsync is not working properly
+    // FIXME To be superceded by the promise-returning send() method in EIP 1193.
+    const sendAsync = (args) => new Promise((resolve, reject) => {
+      let _sendAsync = null
+      if (window.web3) {
+        _sendAsync = window.web3.currentProvider.sendAsync
+      }
+      else if (window.ethereum) {
+        _sendAsync = window.ethereum.sendAsync
+      } else {
+        _sendAsync = ethereum.currentProvider.sendAsync
+      }
+      _sendAsync(args, (err, response) => {
+        if(err) return reject(err)
+        return resolve(response)
+      })
+    })
+
+    const getAccounts = async () => {
+     
+      // try deprecated enable()
+      if (window.ethereum) {
+        
+        if( typeof window.ethereum.enable === 'function') {
+          try {
+            const accounts = await window.ethereum.enable()
+            if (accounts) {
+              return accounts
+            } // else opera not returning accounts? - ignore :(
+          } catch (error) {
+            // Handle error. Likely the user rejected the login:
+            if (error.message === "User rejected provider access") {
+              throw error
+            }
+            // ignore ?
+            console.log('1 getAccounts error', error)
+          }
+        }
+
+        // https://github.com/ethereum/EIPs/blob/master/EIPS/eip-1102.md
+        try {
+          // Request account access if needed
+          const accounts = await window.ethereum.currentProvider.send('eth_requestAccounts')
+          return accounts
+        } catch (error) {
+            // TODO test if user denied account access
+            console.log('2 getAccounts error', error)
+        }
+
+        try {
+          const accounts = await window.ethereum.send('eth_getAccounts')
+          return accounts
+        } catch (error) {
+          console.log('3 getAccounts error', error)
+        }
+
+      }  
+
+      try {
+        const accounts = await ethereum.eth.getAccounts()
+        return accounts
+      } catch (error) {
+        console.log('4 getAccounts error', error)
+      }
+
+      try {
+        const response = await sendAsync({
+          "jsonrpc":"2.0",
+          "method":"eth_accounts",
+          "params":[],
+          "id":1
+        })
+        if (response && response.result) {
+          return response.result
+        }
+      } catch (error) {
+          console.log('5 getAccounts error', error)
+      }
+
+    }
+
+    const toWei = (num, unit) => {
+      return ethereum.utils.toHex(ethereum.utils.toWei(num.toString(), unit))
     }
 
     const { etherPriceUsd, donationAmount, address: to } = this.state
@@ -113,22 +189,12 @@ class App extends Component {
     }
 
     try {
-      let accounts = []
-      
-      // try new provider API
-      try {
-        accounts = await ethereum.enable()
-      } catch (error) {
-        // ignore
-      }
+
+      let accounts = await getAccounts()
 
       // opera for example does not return accounts with enable()
       // try fallback:
       if (!accounts || accounts.length <= 0) {
-        accounts = await ethereum.accounts()
-      }
-
-      if (accounts.length <= 0) {
         return this.renderDonationError('Accounts could not be retrieved')
       }
 
@@ -143,14 +209,6 @@ class App extends Component {
         }
       }
 
-      // somehow await ethereum.sendAsync is not working properly
-      const sendAsync = (args) => new Promise((resolve, reject) => {
-        ethereum.sendAsync(args, (err, response) => {
-          if(err) return reject(err)
-          return resolve(response)
-        })
-      })
-
       // convert user-selected usd amount to eth
       const usdToEth = 1 / etherPriceUsd
       const donationInEth = usdToEth * donationAmount
@@ -164,7 +222,7 @@ class App extends Component {
       try {
         if (CURRENT_NETWORK === MAIN_NETWORK_ID) {
           let balance = await ethereum.getBalance(from)
-          let balanceEth = parseFloat(Web3.fromWei(balance, "ether"))
+          let balanceEth = parseFloat(ethereum.utils.fromWei(balance, "ether"))
           if (balanceEth < donationInEth) {
             return this.renderDonationError('Insufficient funds')
           }
@@ -174,20 +232,20 @@ class App extends Component {
       }
 
       // convert eth amount to wei
-      const value = Web3.toWei(donationInEth, 'ether').toString('hex')
+      const valueWei = toWei(donationInEth, 'ether').toString('hex')
 
       // create tx data
       const transactionParameters = {
         from, // must match user's active address.
         to, // Required except during contract publications.
-        value: value, // Only required to send ether to the recipient from the initiating external account.
+        value: valueWei, // Only required to send ether to the recipient from the initiating external account.
       }
 
       // try to submit tx to network
       const response = await sendAsync({
         method: 'eth_sendTransaction',
         params: [transactionParameters],
-        from: ethereum.selectedAddress,
+        from
       })
 
       if (!response) {
@@ -220,6 +278,7 @@ class App extends Component {
       
     } catch (err) {
       alert('err: '+err.message)
+      console.log('err', err)
       return this.renderDonationError('There was an issue, please try again.')
     }
   }
