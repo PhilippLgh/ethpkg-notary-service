@@ -15,6 +15,15 @@ const CURRENT_NETWORK = ROPSTEN_NETWORK_ID
 const ethereum = window.web3 ? new Web3(window.web3.currentProvider) : (window.ethereum ? new Web3(window.ethereum) : null)
 window.__ethereum = ethereum
 
+const copyToClipboard = str => {
+  const el = document.createElement('textarea');
+  el.value = str;
+  document.body.appendChild(el);
+  el.select();
+  document.execCommand('copy');
+  document.body.removeChild(el);
+}
+
 class App extends Component {
   state={
     address: undefined,
@@ -91,7 +100,6 @@ class App extends Component {
       donationError: ''
     })
 
-
     if (!ethereum) {
       alert('Please use a Dapp browser like Opera, Status or install the Metamask extension')
       return
@@ -119,7 +127,6 @@ class App extends Component {
      
       // try deprecated enable()
       if (window.ethereum) {
-        
         if( typeof window.ethereum.enable === 'function') {
           try {
             const accounts = await window.ethereum.enable()
@@ -135,28 +142,10 @@ class App extends Component {
             console.log('1 getAccounts error', error)
           }
         }
-
-        // https://github.com/ethereum/EIPs/blob/master/EIPS/eip-1102.md
-        try {
-          // Request account access if needed
-          const accounts = await window.ethereum.currentProvider.send('eth_requestAccounts')
-          return accounts
-        } catch (error) {
-            // TODO test if user denied account access
-            console.log('2 getAccounts error', error)
-        }
-
-        try {
-          const accounts = await window.ethereum.send('eth_getAccounts')
-          return accounts
-        } catch (error) {
-          console.log('3 getAccounts error', error)
-        }
-
       }  
 
       try {
-        const accounts = await ethereum.eth.getAccounts()
+        const accounts = await ethereum.eth.requestAccounts()
         return accounts
       } catch (error) {
         console.log('4 getAccounts error', error)
@@ -277,9 +266,8 @@ class App extends Component {
       }
       
     } catch (err) {
-      alert('err: '+err.message)
-      console.log('err', err)
-      return this.renderDonationError('There was an issue, please try again.')
+      console.log('donation error', err)
+      return this.renderDonationError('There was an issue, please try again:' + err)
     }
   }
   renderDonationError = (donationError) => {
@@ -383,6 +371,11 @@ class App extends Component {
     </div>
     )
   }
+  copyBadgeMarkdown = () => {
+    const { packageName } = this.state
+    const markdown = `[![ethpkg status](http://api.ethpkg.org/badge/npm/${packageName})](http://ethpkg.org/npm/${packageName})`
+    copyToClipboard(markdown)
+  }
   renderPackageInfo = (packageName) => {
     const { verificationResult, pkgInfo, donationError, txHash } = this.state
     const canDonate = verificationResult && verificationResult.isValid === true
@@ -392,7 +385,7 @@ class App extends Component {
       <h1 className="title">
       {packageName} <span className="tag is-dark">{packageVersion}</span> 
       </h1>
-      <img src={`${API_URL}/badge/npm/${packageName}`} />
+      <img src={`${API_URL}/badge/npm/${packageName}`} /> <button className="button is-small" onClick={this.copyBadgeMarkdown}>copy markdown</button>
       <div className="donation-select" style={{marginTop: 30}}>
         { canDonate 
           ? this.renderDonationTags() 
